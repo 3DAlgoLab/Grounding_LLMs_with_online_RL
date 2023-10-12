@@ -38,14 +38,14 @@ from accelerate import Accelerator
 
 accelerator = Accelerator()
 
-def reward_function(subgoal_proba=None, reward=None, policy_value=None, llm_0=None):
+def reward_function(subgoal_proba=None, reward=0, policy_value=None, llm_0=None):
     if reward > 0:
         return [20 * reward, 0]
     else:
         return [0, 0]
 
 
-def reward_function_shapped(subgoal_proba=None, reward=None, policy_value=None, llm_0=None):
+def reward_function_shapped(subgoal_proba=None, reward=0, policy_value=None, llm_0=None):
     if reward > 0:
         return [20 * reward - np.log(subgoal_proba / policy_value), -np.log(subgoal_proba / policy_value)]
     else:
