@@ -1,0 +1,56 @@
+lamorel_args:
+  log_level: info
+  allow_subgraph_use_whith_gradient: true
+  distributed_setup_args:
+    n_rl_processes: 1
+    n_llm_processes: 2
+  accelerate_args:
+    config_file: accelerate/default_config.yaml
+    machine_rank: 0
+    num_machines: 3
+  llm_args:
+    model_type: seq2seq
+    model_path: t5-small
+    pretrained: true
+    minibatch_size: 4
+    pre_encode_inputs: true
+    parallelism:
+      use_gpu: true
+      model_parallelism_size: 1
+      synchronize_gpus_after_scoring: false
+      empty_cuda_cache_after_scoring: false
+rl_script_args:
+  seed: 1
+  number_envs: 2 # Number of parallel envs to launch (steps will be synchronized, i.e. a step call will return number_envs observations)
+  num_steps: 1000 # Total number of training steps
+  max_episode_steps: 3 # Maximum number of steps in a single episode
+  frames_per_proc: 40 # The number of collected transitions to perform a PPO update will be frames_per_proc*number_envs
+  discount: 0.99 # Discount factor used in PPO
+  lr: 1e-6 # Learning rate used to finetune the LLM
+  beta1: 0.9 # PPO's hyperparameter
+  beta2: 0.999 # PPO's hyperparameter
+  gae_lambda: 0.99 # PPO's hyperparameter
+  entropy_coef: 0.01 # PPO's hyperparameter
+  value_loss_coef: 0.5 # PPO's hyperparameter
+  max_grad_norm: 0.5 # Maximum grad norm when updating the LLM's parameters
+  adam_eps: 1e-5 # Adam's hyperparameter
+  clip_eps: 0.2 # Epsilon used in PPO's losses clipping
+  epochs: 4 # Number of PPO epochs performed on each set of collected trajectories
+  batch_size: 16 # Minibatch size
+  action_space: [
+      "turn_left",
+      "turn_right",
+      "go_forward",
+      "pick_up",
+      "drop",
+      "toggle",
+    ] # Possible actions for the agent
+  saving_path_logs: ??? # Where to store logs
+  name_experiment: "llm_mtrl" # Useful for logging
+  name_model: "T5small" # Useful for logging
+  saving_path_model: "./test.pt" # Where to store the finetuned model
+  name_environment: "BabyAI-MixedTestLocal-v0" # BabiAI-Text's environment
+  load_embedding: true # Whether trained embedding layers should be loaded (useful when lm_args.pretrained=False). Setting both this and use_action_heads to True (lm_args.pretrained=False) creates our NPAE agent.
+  use_action_heads: false # Whether action heads should be used instead of scoring. Setting both this and use_action_heads to True (lm_args.pretrained=False) creates our NPAE agent.
+  template_test: 1 # Which prompt template to use to log evolution of action's probability (Section C of our paper). Choices or [1, 2].
+  nbr_obs: 3 # Number of past observation used in the prompt

@@ -6,8 +6,8 @@ lamorel_args:
     n_llm_processes: 2
   accelerate_args:
     config_file: accelerate/default_config.yaml
-    machine_rank: 0
-    num_machines: 3
+    # machine_rank: 0
+    # num_machines: 3
   llm_args:
     model_type: seq2seq
     model_path: t5-small
@@ -39,14 +39,15 @@ rl_script_args:
   clip_eps: 0.2
   epochs: 4
   batch_size: 16
-  action_space: ["turn_left","turn_right","go_forward","pick_up","drop","toggle"]
+  action_space:
+    ["turn_left", "turn_right", "go_forward", "pick_up", "drop", "toggle"]
   saving_path_logs: ???
-  name_experiment: 'llm_mtrl'
-  name_model: 'T5small'
+  name_experiment: "llm_mtrl"
+  name_model: "T5small"
   saving_path_model: ???
-  name_environment: 'BabyAI-MixedTestLocal-v0'
+  name_environment: "BabyAI-MixedTestLocal-v0"
   number_episodes: 10
-  language: 'english'
+  language: "english"
   load_embedding: true
   use_action_heads: false
   template_test: 1

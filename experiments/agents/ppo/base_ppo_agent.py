@@ -1,12 +1,25 @@
-from experiments.agents.base_agent import BaseAgent
+from ..base_agent import BaseAgent
 
 from babyai.rl.utils.supervised_losses import ExtraInfoCollector
 
 import torch
 
+
 class BasePPOAgent(BaseAgent):
-    def __init__(self, envs, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef, value_loss_coef,
-                 max_grad_norm, reshape_reward, aux_info, device):
+    def __init__(
+        self,
+        envs,
+        num_frames_per_proc,
+        discount,
+        lr,
+        gae_lambda,
+        entropy_coef,
+        value_loss_coef,
+        max_grad_norm,
+        reshape_reward,
+        aux_info,
+        device,
+    ):
         """
         Initializes a `BaseAlgo` instance.
 
@@ -67,13 +80,23 @@ class BasePPOAgent(BaseAgent):
         self.log_probs = torch.zeros(*shape, device=self.device)
 
         if self.aux_info:
-            self.aux_info_collector = ExtraInfoCollector(self.aux_info, shape, self.device)
+            self.aux_info_collector = ExtraInfoCollector(
+                self.aux_info, shape, self.device
+            )
 
         # Initialize log values
-        self.log_episode_return = torch.zeros(self.num_procs, device=self.device)
-        self.log_episode_reshaped_return = torch.zeros(self.num_procs, device=self.device)
-        self.log_episode_reshaped_return_bonus = torch.zeros(self.num_procs, device=self.device)
-        self.log_episode_num_frames = torch.zeros(self.num_procs, device=self.device)
+        self.log_episode_return = torch.zeros(
+            self.num_procs, device=self.device
+        )
+        self.log_episode_reshaped_return = torch.zeros(
+            self.num_procs, device=self.device
+        )
+        self.log_episode_reshaped_return_bonus = torch.zeros(
+            self.num_procs, device=self.device
+        )
+        self.log_episode_num_frames = torch.zeros(
+            self.num_procs, device=self.device
+        )
 
         self.log_done_counter = 0
         self.log_return = [0] * self.num_procs

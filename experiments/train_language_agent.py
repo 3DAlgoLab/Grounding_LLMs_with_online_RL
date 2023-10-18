@@ -6,7 +6,7 @@ import distutils
 import csv
 import json
 from collections import OrderedDict
-
+from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def reward_function(
 
 
 def reward_function_shapped(
-    subgoal_proba=None, reward=0, policy_value=None, llm_0=None
+    subgoal_proba=0, reward=0, policy_value=None, llm_0=None
 ):
     if reward > 0:
         return [
@@ -181,6 +181,7 @@ class PPOUpdater(BaseUpdater):
             head_prompt += " {},".format(sg)
         head_prompt = head_prompt[:-1]
 
+        templated_prompts = []
         if template_test == 1:
             # expected answers: go forward, turn left, turn left, toggle
             templated_prompts = [
@@ -580,9 +581,10 @@ def run_agent(args, algo, id_expe):
 
 
 # This will be overriden by lamorel's launcher if used
-@hydra.main(config_path="config", config_name="config")
+@hydra.main(config_path="configs", config_name="config")
 def main(config_args):
     # lm server
+    print("cwd:", Path().resolve())
     lm_server = None
     lamorel_scoring_module_key = ""
 

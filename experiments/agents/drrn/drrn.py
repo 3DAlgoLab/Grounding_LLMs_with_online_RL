@@ -1,6 +1,6 @@
-'''
+"""
 This code has been taken from https://github.com/microsoft/tdqn and modified to match our needs
-'''
+"""
 import numpy as np
 import logging
 
@@ -19,7 +19,7 @@ import pickle
 
 import babyai.rl
 
-from experiments.agents.base_agent import BaseAgent
+from ..base_agent import BaseAgent
 
 # Accelerate
 from accelerate import Accelerator
@@ -29,8 +29,24 @@ device = accelerator.state.device
 
 
 class DRRNAgent(BaseAgent):
-    def __init__(self, envs, subgoals, reshape_reward, spm_path, saving_path, gamma=0.9, batch_size=64, memory_size=5000000,
-                 priority_fraction=0, clip=5, embedding_dim=128, hidden_dim=128, lr=0.0001, max_steps=64, save_frequency=10):
+    def __init__(
+        self,
+        envs,
+        subgoals,
+        reshape_reward,
+        spm_path,
+        saving_path,
+        gamma=0.9,
+        batch_size=64,
+        memory_size=5000000,
+        priority_fraction=0,
+        clip=5,
+        embedding_dim=128,
+        hidden_dim=128,
+        lr=0.0001,
+        max_steps=64,
+        save_frequency=10,
+    ):
         super().__init__(envs)
         self.subgoals = subgoals
         self.reshape_reward = reshape_reward
@@ -39,8 +55,9 @@ class DRRNAgent(BaseAgent):
         self.sp = spm.SentencePieceProcessor()
         self.sp.Load(spm_path)
         ## self.memory = ReplayMemory(memory_size)     ## PJ: Changing to more memory efficient memory, since the pickle files are enormous
-        self.memory = PrioritizedReplayMemory(capacity=memory_size,
-                                              priority_fraction=priority_fraction)  ## PJ: Changing to more memory efficient memory, since the pickle files are enormous
+        self.memory = PrioritizedReplayMemory(
+            capacity=memory_size, priority_fraction=priority_fraction
+        )  ## PJ: Changing to more memory efficient memory, since the pickle files are enormous
         self.clip = clip
         self.network = DRRN(len(self.sp), embedding_dim, hidden_dim).to(device)
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=lr)
@@ -53,10 +70,16 @@ class DRRNAgent(BaseAgent):
         self.obs_queue = [deque([], maxlen=3) for _ in range(self.n_envs)]
         self.acts_queue = [deque([], maxlen=2) for _ in range(self.n_envs)]
         for j in range(self.n_envs):
-            self.obs_queue[j].append(self.infos[j]['descriptions'])
-        prompts = [self.generate_prompt(goal=self.obs[j]['mission'], subgoals=self.subgoals[j],
-                                             deque_obs=self.obs_queue[j], deque_actions=self.acts_queue[j])
-                   for j in range(self.n_envs)]
+            self.obs_queue[j].append(self.infos[j]["descriptions"])
+        prompts = [
+            self.generate_prompt(
+                goal=self.obs[j]["mission"],
+                subgoals=self.subgoals[j],
+                deque_obs=self.obs_queue[j],
+                deque_actions=self.acts_queue[j],
+            )
+            for j in range(self.n_envs)
+        ]
         self.states = self.build_state(prompts)
         self.encoded_actions = self.encode_actions(self.subgoals)
         self.logs = {
@@ -70,7 +93,7 @@ class DRRNAgent(BaseAgent):
             "policy_loss": 0,
             "value_loss": 0,
             "grad_norm": 0,
-            "loss": 0
+            "loss": 0,
         }
         self.returns = [0 for _ in range(self.n_envs)]
         self.reshaped_returns = [0 for _ in range(self.n_envs)]
@@ -90,12 +113,14 @@ class DRRNAgent(BaseAgent):
         return [self.sp.EncodeAsIds(a) for a in acts]
 
     def act(self, states, poss_acts, sample=True):
-        """ Returns a string action from poss_acts. """
+        """Returns a string action from poss_acts."""
         act_values = self.network.forward(states, poss_acts)
         if sample:
             act_probs = [F.softmax(vals, dim=0) for vals in act_values]
-            act_idxs = [torch.multinomial(probs, num_samples=1).item()
-                        for probs in act_probs]
+            act_idxs = [
+                torch.multinomial(probs, num_samples=1).item()
+                for probs in act_probs
+            ]
         else:
             act_idxs = [vals.argmax(dim=0).item() for vals in act_values]
 
@@ -112,10 +137,17 @@ class DRRNAgent(BaseAgent):
         # Compute Q(s', a') for all a'
         next_qvals = self.network(batch.next_state, batch.next_acts)
         # Take the max over next q-values
-        next_qvals = torch.tensor([vals.max() for vals in next_qvals], device=device)
+        next_qvals = torch.tensor(
+            [vals.max() for vals in next_qvals], device=device
+        )
         # Zero all the next_qvals that are done
-        next_qvals = next_qvals * (1 - torch.tensor(batch.done, dtype=torch.float, device=device))
-        targets = torch.tensor(batch.reward, dtype=torch.float, device=device) + self.gamma * next_qvals
+        next_qvals = next_qvals * (
+            1 - torch.tensor(batch.done, dtype=torch.float, device=device)
+        )
+        targets = (
+            torch.tensor(batch.reward, dtype=torch.float, device=device)
+            + self.gamma * next_qvals
+        )
 
         # Next compute Q(s, a)
         # Nest each action in a list - so that it becomes the only admissible cmd
@@ -135,9 +167,16 @@ class DRRNAgent(BaseAgent):
 
     def update_parameters(self):
         episodes_done = 0
-        for i in tqdm(range(self.max_steps // self.n_envs), ascii=" " * 9 + ">", ncols=100):
-            action_ids, action_idxs, _ = self.act(self.states, self.encoded_actions, sample=True)
-            actions = [_subgoals[idx] for _subgoals, idx in zip(self.subgoals, action_idxs)]
+        for i in tqdm(
+            range(self.max_steps // self.n_envs), ascii=" " * 9 + ">", ncols=100
+        ):
+            action_ids, action_idxs, _ = self.act(
+                self.states, self.encoded_actions, sample=True
+            )
+            actions = [
+                _subgoals[idx]
+                for _subgoals, idx in zip(self.subgoals, action_idxs)
+            ]
             if len(self.subgoals[0]) > 6:
                 # only useful when we test the impact of the number of actions
                 real_a = np.copy(action_idxs)
@@ -145,34 +184,53 @@ class DRRNAgent(BaseAgent):
                 obs, rewards, dones, infos = self.env.step(real_a)
             else:
                 obs, rewards, dones, infos = self.env.step(action_idxs)
-            reshaped_rewards = [self.reshape_reward(reward=r)[0] for r in rewards]
+            reshaped_rewards = [
+                self.reshape_reward(reward=r)[0] for r in rewards
+            ]
             for j in range(self.n_envs):
                 self.returns[j] += rewards[j]
                 self.reshaped_returns[j] += reshaped_rewards[j]
                 self.frames_per_episode[j] += 1
                 if dones[j]:
                     episodes_done += 1
-                    self.logs["num_frames_per_episode"].append(self.frames_per_episode[j])
+                    self.logs["num_frames_per_episode"].append(
+                        self.frames_per_episode[j]
+                    )
                     self.frames_per_episode[j] = 0
                     self.logs["return_per_episode"].append(self.returns[j])
                     self.returns[j] = 0
-                    self.logs["reshaped_return_per_episode"].append(self.reshaped_returns[j])
-                    self.logs["reshaped_return_bonus_per_episode"].append(self.reshaped_returns[j])
+                    self.logs["reshaped_return_per_episode"].append(
+                        self.reshaped_returns[j]
+                    )
+                    self.logs["reshaped_return_bonus_per_episode"].append(
+                        self.reshaped_returns[j]
+                    )
                     self.reshaped_returns[j] = 0
                     # reinitialise memory of past observations and actions
                     self.obs_queue[j].clear()
                     self.acts_queue[j].clear()
                 else:
                     self.acts_queue[j].append(actions[j])
-                    self.obs_queue[j].append(infos[j]['descriptions'])
+                    self.obs_queue[j].append(infos[j]["descriptions"])
 
-            next_prompts = [self.generate_prompt(goal=obs[j]['mission'], subgoals=self.subgoals[j],
-                                                 deque_obs=self.obs_queue[j],
-                                                 deque_actions=self.acts_queue[j])
-                            for j in range(self.n_envs)]
+            next_prompts = [
+                self.generate_prompt(
+                    goal=obs[j]["mission"],
+                    subgoals=self.subgoals[j],
+                    deque_obs=self.obs_queue[j],
+                    deque_actions=self.acts_queue[j],
+                )
+                for j in range(self.n_envs)
+            ]
             next_states = self.build_state(next_prompts)
-            for state, act, rew, next_state, next_poss_acts, done in \
-                    zip(self.states, action_ids, reshaped_rewards, next_states, self.encoded_actions, dones):
+            for state, act, rew, next_state, next_poss_acts, done in zip(
+                self.states,
+                action_ids,
+                reshaped_rewards,
+                next_states,
+                self.encoded_actions,
+                dones,
+            ):
                 self.observe(state, act, rew, next_state, next_poss_acts, done)
             self.states = next_states
             # self.logs["num_frames"] += self.n_envs
@@ -194,14 +252,19 @@ class DRRNAgent(BaseAgent):
         logs["episodes_done"] = episodes_done
         return logs
 
-    def generate_trajectories(self, dict_modifier, n_tests, language='english'):
+    def generate_trajectories(self, dict_modifier, n_tests, language="english"):
         if language == "english":
             generate_prompt = self.generate_prompt
             subgoals = self.subgoals
         elif language == "french":
             generate_prompt = self.generate_prompt_french
-            subgoals = [[self.prompt_modifier(sg, self.dict_translation_actions) for sg in sgs]
-                        for sgs in self.subgoals]
+            subgoals = [
+                [
+                    self.prompt_modifier(sg, self.dict_translation_actions)
+                    for sg in sgs
+                ]
+                for sgs in self.subgoals
+            ]
 
         episodes_done = 0
         pbar = tqdm(range(n_tests), ascii=" " * 9 + ">", ncols=100)
@@ -209,15 +272,24 @@ class DRRNAgent(BaseAgent):
             # Do one agent-environment interaction
             prompts = [
                 self.prompt_modifier(
-                    generate_prompt(goal=self.obs[j]['mission'],
-                                    subgoals=subgoals[j],
-                                    deque_obs=self.obs_queue[j],
-                                    deque_actions=self.acts_queue[j]),
-                    dict_modifier)
-                for j in range(self.n_envs)]
+                    generate_prompt(
+                        goal=self.obs[j]["mission"],
+                        subgoals=subgoals[j],
+                        deque_obs=self.obs_queue[j],
+                        deque_actions=self.acts_queue[j],
+                    ),
+                    dict_modifier,
+                )
+                for j in range(self.n_envs)
+            ]
             self.states = self.build_state(prompts)
-            action_ids, action_idxs, _ = self.act(self.states, self.encoded_actions, sample=True)
-            actions = [_subgoals[idx] for _subgoals, idx in zip(self.subgoals, action_idxs)]
+            action_ids, action_idxs, _ = self.act(
+                self.states, self.encoded_actions, sample=True
+            )
+            actions = [
+                _subgoals[idx]
+                for _subgoals, idx in zip(self.subgoals, action_idxs)
+            ]
 
             if len(self.subgoals[0]) > 6:
                 # only useful when we test the impact of the number of actions
@@ -226,7 +298,9 @@ class DRRNAgent(BaseAgent):
                 obs, rewards, dones, infos = self.env.step(real_a)
             else:
                 obs, rewards, dones, infos = self.env.step(action_idxs)
-            reshaped_rewards = [self.reshape_reward(reward=r)[0] for r in rewards]
+            reshaped_rewards = [
+                self.reshape_reward(reward=r)[0] for r in rewards
+            ]
 
             for j in range(self.n_envs):
                 self.returns[j] += rewards[j]
@@ -235,26 +309,39 @@ class DRRNAgent(BaseAgent):
                 if dones[j]:
                     episodes_done += 1
                     pbar.update(1)
-                    self.logs["num_frames_per_episode"].append(self.frames_per_episode[j])
+                    self.logs["num_frames_per_episode"].append(
+                        self.frames_per_episode[j]
+                    )
                     self.frames_per_episode[j] = 0
                     self.logs["return_per_episode"].append(self.returns[j])
                     self.returns[j] = 0
-                    self.logs["reshaped_return_per_episode"].append(self.reshaped_returns[j])
-                    self.logs["reshaped_return_bonus_per_episode"].append(self.reshaped_returns[j])
+                    self.logs["reshaped_return_per_episode"].append(
+                        self.reshaped_returns[j]
+                    )
+                    self.logs["reshaped_return_bonus_per_episode"].append(
+                        self.reshaped_returns[j]
+                    )
                     self.reshaped_returns[j] = 0
                     # reinitialise memory of past observations and actions
                     self.obs_queue[j].clear()
                     self.acts_queue[j].clear()
                 else:
                     self.acts_queue[j].append(actions[j])
-                    self.obs_queue[j].append(infos[j]['descriptions'])
+                    self.obs_queue[j].append(infos[j]["descriptions"])
 
             self.obs = obs
-            next_prompts = [self.prompt_modifier(generate_prompt(goal=obs[j]['mission'], subgoals=subgoals[j],
-                                                                 deque_obs=self.obs_queue[j],
-                                                                 deque_actions=self.acts_queue[j]),
-                                                 dict_modifier)
-                            for j in range(self.n_envs)]
+            next_prompts = [
+                self.prompt_modifier(
+                    generate_prompt(
+                        goal=obs[j]["mission"],
+                        subgoals=subgoals[j],
+                        deque_obs=self.obs_queue[j],
+                        deque_actions=self.acts_queue[j],
+                    ),
+                    dict_modifier,
+                )
+                for j in range(self.n_envs)
+            ]
             next_states = self.build_state(next_prompts)
 
             self.states = next_states
@@ -272,18 +359,28 @@ class DRRNAgent(BaseAgent):
 
     def load(self):
         try:
-            with open(self.saving_path + "/memory.pkl", 'rb') as _file:
+            with open(self.saving_path + "/memory.pkl", "rb") as _file:
                 saved_memory = pickle.load(_file)
             self.memory = saved_memory
-            self.optimizer.load_state_dict(torch.load(self.saving_path + "/optimizer.checkpoint"))
+            self.optimizer.load_state_dict(
+                torch.load(self.saving_path + "/optimizer.checkpoint")
+            )
         except Exception as err:
-            print(f"Encountered the following exception when trying to load the memory, an empty memory will be used instead: {err}")
+            print(
+                f"Encountered the following exception when trying to load the memory, an empty memory will be used instead: {err}"
+            )
 
-        self.network.load_state_dict(torch.load(self.saving_path + "/model.checkpoint"))
-
+        self.network.load_state_dict(
+            torch.load(self.saving_path + "/model.checkpoint")
+        )
 
     def save(self):
-        torch.save(self.network.state_dict(), self.saving_path + "/model.checkpoint")
-        torch.save(self.optimizer.state_dict(), self.saving_path + "/optimizer.checkpoint")
-        with open(self.saving_path + "/memory.pkl", 'wb') as _file:
+        torch.save(
+            self.network.state_dict(), self.saving_path + "/model.checkpoint"
+        )
+        torch.save(
+            self.optimizer.state_dict(),
+            self.saving_path + "/optimizer.checkpoint",
+        )
+        with open(self.saving_path + "/memory.pkl", "wb") as _file:
             pickle.dump(self.memory, _file)

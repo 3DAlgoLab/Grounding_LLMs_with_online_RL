@@ -12,14 +12,52 @@ from tqdm import tqdm
 from collections import deque
 import logging
 
+
 class LLMPPOAgent(BasePPOAgent):
-    def __init__(self, envs, lm_server, llm_scoring_module_key, nbr_llms=None, num_frames_per_proc=None, discount=0.99,
-                 lr=7e-4, beta1=0.9, beta2=0.999, gae_lambda=0.95, entropy_coef=0.01, value_loss_coef=0.5,
-                 max_grad_norm=0.5, adam_eps=1e-5, clip_eps=0.2, epochs=4, batch_size=64, reshape_reward=None,
-                 name_experiment=None, saving_path_model=None, saving_path_logs=None, number_envs=None, subgoals=None,
-                 nbr_obs=3, id_expe=None, template_test=1, aux_info=None, debug=False):
-        super().__init__(envs, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef, value_loss_coef,
-                         max_grad_norm, reshape_reward, aux_info, device=torch.device("cpu"))
+    def __init__(
+        self,
+        envs,
+        lm_server,
+        llm_scoring_module_key,
+        nbr_llms=None,
+        num_frames_per_proc=None,
+        discount=0.99,
+        lr=7e-4,
+        beta1=0.9,
+        beta2=0.999,
+        gae_lambda=0.95,
+        entropy_coef=0.01,
+        value_loss_coef=0.5,
+        max_grad_norm=0.5,
+        adam_eps=1e-5,
+        clip_eps=0.2,
+        epochs=4,
+        batch_size=64,
+        reshape_reward=None,
+        name_experiment=None,
+        saving_path_model=None,
+        saving_path_logs=None,
+        number_envs=None,
+        subgoals=None,
+        nbr_obs=3,
+        id_expe=None,
+        template_test=1,
+        aux_info=None,
+        debug=False,
+    ):
+        super().__init__(
+            envs,
+            num_frames_per_proc,
+            discount,
+            lr,
+            gae_lambda,
+            entropy_coef,
+            value_loss_coef,
+            max_grad_norm,
+            reshape_reward,
+            aux_info,
+            device=torch.device("cpu"),
+        )
 
         self.lm_server = lm_server
         self.llm_scoring_module_key = llm_scoring_module_key
@@ -32,15 +70,19 @@ class LLMPPOAgent(BasePPOAgent):
             raise NotImplementedError()
 
         self.nbr_obs = nbr_obs
-        self.obs_queue = [deque([], maxlen=self.nbr_obs) for _ in range(self.num_procs)]
-        self.acts_queue = [deque([], maxlen=self.nbr_obs - 1) for _ in range(self.num_procs)]
+        self.obs_queue = [
+            deque([], maxlen=self.nbr_obs) for _ in range(self.num_procs)
+        ]
+        self.acts_queue = [
+            deque([], maxlen=self.nbr_obs - 1) for _ in range(self.num_procs)
+        ]
         self.subgoals = subgoals
         shape = (self.num_frames_per_proc, self.num_procs)
         logging.info("resetting environment")
         self.obs, self.infos = self.env.reset()
         logging.info("reset environment")
         for i in range(self.num_procs):
-            self.obs_queue[i].append(self.infos[i]['descriptions'])
+            self.obs_queue[i].append(self.infos[i]["descriptions"])
 
         self.prompts = [None] * (shape[0])
         self.actions = torch.zeros(*shape, device=self.device, dtype=torch.int)
@@ -86,20 +128,32 @@ class LLMPPOAgent(BasePPOAgent):
             reward, policy loss, value loss, etc.
         """
 
-        for i in tqdm(range(self.num_frames_per_proc), ascii=" " * 9 + ">", ncols=100):
+        for i in tqdm(
+            range(self.num_frames_per_proc), ascii=" " * 9 + ">", ncols=100
+        ):
             # Do one agent-environment interaction
 
-            prompt = [self.generate_prompt(goal=self.obs[j]['mission'], subgoals=self.subgoals[j],
-                                           deque_obs=self.obs_queue[j], deque_actions=self.acts_queue[j])
-                      for j in range(self.num_procs)]
+            prompt = [
+                self.generate_prompt(
+                    goal=self.obs[j]["mission"],
+                    subgoals=self.subgoals[j],
+                    deque_obs=self.obs_queue[j],
+                    deque_actions=self.acts_queue[j],
+                )
+                for j in range(self.num_procs)
+            ]
 
-            output = self.lm_server.custom_module_fns(module_function_keys=[self.llm_scoring_module_key, 'value'],
-                                                      contexts=prompt,
-                                                      candidates=self.filter_candidates_fn(self.subgoals))
-            scores = torch.stack([_o[self.llm_scoring_module_key] for _o in output]).squeeze()
+            output = self.lm_server.custom_module_fns(
+                module_function_keys=[self.llm_scoring_module_key, "value"],
+                contexts=prompt,
+                candidates=self.filter_candidates_fn(self.subgoals),
+            )
+            scores = torch.stack(
+                [_o[self.llm_scoring_module_key] for _o in output]
+            ).squeeze()
             dist = Categorical(logits=scores)
             values = torch.stack([_o["value"][0] for _o in output])
-            
+
             action = dist.sample()
             a = action.cpu().numpy()
 
@@ -119,7 +173,7 @@ class LLMPPOAgent(BasePPOAgent):
                     # reinitialise memory of past observations and actions
                     self.obs_queue[j].clear()
                     self.acts_queue[j].clear()
-                self.obs_queue[j].append(self.infos[j]['descriptions'])
+                self.obs_queue[j].append(self.infos[j]["descriptions"])
 
             info = self.infos
 
@@ -140,16 +194,26 @@ class LLMPPOAgent(BasePPOAgent):
             self.prompts[i] = prompt
 
             self.masks[i] = self.mask
-            self.mask = 1 - torch.tensor(done, device=self.device, dtype=torch.float)
+            self.mask = 1 - torch.tensor(
+                done, device=self.device, dtype=torch.float
+            )
 
             self.actions[i] = action
             self.values[i] = values.squeeze()
 
             if self.reshape_reward is not None:
-                rewards_shaped = torch.tensor([
-                    self.reshape_reward(subgoal_proba=None, reward=reward_, policy_value=None, llm_0=None)
-                    for reward_ in reward
-                ], device=self.device)
+                rewards_shaped = torch.tensor(
+                    [
+                        self.reshape_reward(
+                            subgoal_proba=None,
+                            reward=reward_,
+                            policy_value=None,
+                            llm_0=None,
+                        )
+                        for reward_ in reward
+                    ],
+                    device=self.device,
+                )
                 self.rewards[i] = rewards_shaped[:, 0]
                 self.rewards_bonus[i] = rewards_shaped[:, 1]
             else:
@@ -163,18 +227,28 @@ class LLMPPOAgent(BasePPOAgent):
 
             # Update log values
 
-            self.log_episode_return += torch.tensor(reward, device=self.device, dtype=torch.float)
+            self.log_episode_return += torch.tensor(
+                reward, device=self.device, dtype=torch.float
+            )
             self.log_episode_reshaped_return += self.rewards[i]
             self.log_episode_reshaped_return_bonus += self.rewards_bonus[i]
-            self.log_episode_num_frames += torch.ones(self.num_procs, device=self.device)
+            self.log_episode_num_frames += torch.ones(
+                self.num_procs, device=self.device
+            )
 
             for i, done_ in enumerate(done):
                 if done_:
                     self.log_done_counter += 1
                     self.log_return.append(self.log_episode_return[i].item())
-                    self.log_reshaped_return.append(self.log_episode_reshaped_return[i].item())
-                    self.log_reshaped_return_bonus.append(self.log_episode_reshaped_return_bonus[i].item())
-                    self.log_num_frames.append(self.log_episode_num_frames[i].item())
+                    self.log_reshaped_return.append(
+                        self.log_episode_reshaped_return[i].item()
+                    )
+                    self.log_reshaped_return_bonus.append(
+                        self.log_episode_reshaped_return_bonus[i].item()
+                    )
+                    self.log_num_frames.append(
+                        self.log_episode_num_frames[i].item()
+                    )
 
             self.log_episode_return *= self.mask
             self.log_episode_reshaped_return *= self.mask
@@ -182,30 +256,65 @@ class LLMPPOAgent(BasePPOAgent):
             self.log_episode_num_frames *= self.mask
 
         # Add advantage and return to experiences
-        prompt = [self.generate_prompt(goal=self.obs[i]['mission'], subgoals=self.subgoals[i],
-                                       deque_obs=self.obs_queue[i], deque_actions=self.acts_queue[i])
-                  for i in range(self.num_procs)]
-        output = self.lm_server.custom_module_fns(module_function_keys=['value'], contexts=prompt)
+        prompt = [
+            self.generate_prompt(
+                goal=self.obs[i]["mission"],
+                subgoals=self.subgoals[i],
+                deque_obs=self.obs_queue[i],
+                deque_actions=self.acts_queue[i],
+            )
+            for i in range(self.num_procs)
+        ]
+        output = self.lm_server.custom_module_fns(
+            module_function_keys=["value"], contexts=prompt
+        )
         next_value = torch.stack([_o["value"] for _o in output]).squeeze()
 
         for i in reversed(range(self.num_frames_per_proc)):
-            next_mask = self.masks[i + 1] if i < self.num_frames_per_proc - 1 else self.mask
-            next_value = self.values[i + 1] if i < self.num_frames_per_proc - 1 else next_value
-            next_advantage = self.advantages[i + 1] if i < self.num_frames_per_proc - 1 else 0
+            next_mask = (
+                self.masks[i + 1]
+                if i < self.num_frames_per_proc - 1
+                else self.mask
+            )
+            next_value = (
+                self.values[i + 1]
+                if i < self.num_frames_per_proc - 1
+                else next_value
+            )
+            next_advantage = (
+                self.advantages[i + 1]
+                if i < self.num_frames_per_proc - 1
+                else 0
+            )
 
-            delta = self.rewards[i] + self.discount * next_value * next_mask - self.values[i]
-            self.advantages[i] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
+            delta = (
+                self.rewards[i]
+                + self.discount * next_value * next_mask
+                - self.values[i]
+            )
+            self.advantages[i] = (
+                delta
+                + self.discount * self.gae_lambda * next_advantage * next_mask
+            )
 
         # Flatten the data correctly, making sure that
         # each episode's data is a continuous chunk
 
         exps = DictList()
-        exps.prompt = np.array([self.prompts[i][j]
-                                for j in range(self.num_procs)
-                                for i in range(self.num_frames_per_proc)])
-        exps.subgoal = np.array([self.subgoals[j]
-                                 for j in range(self.num_procs)
-                                 for i in range(self.num_frames_per_proc)])
+        exps.prompt = np.array(
+            [
+                self.prompts[i][j]
+                for j in range(self.num_procs)
+                for i in range(self.num_frames_per_proc)
+            ]
+        )
+        exps.subgoal = np.array(
+            [
+                self.subgoals[j]
+                for j in range(self.num_procs)
+                for i in range(self.num_frames_per_proc)
+            ]
+        )
         # In commments below T is self.num_frames_per_proc, P is self.num_procs,
         # D is the dimensionality
 
@@ -228,17 +337,21 @@ class LLMPPOAgent(BasePPOAgent):
         log = {
             "return_per_episode": self.log_return[-keep:],
             "reshaped_return_per_episode": self.log_reshaped_return[-keep:],
-            "reshaped_return_bonus_per_episode": self.log_reshaped_return_bonus[-keep:],
+            "reshaped_return_bonus_per_episode": self.log_reshaped_return_bonus[
+                -keep:
+            ],
             "num_frames_per_episode": self.log_num_frames[-keep:],
             "num_frames": self.num_frames,
             "episodes_done": self.log_done_counter,
         }
 
         self.log_done_counter = 0
-        self.log_return = self.log_return[-self.num_procs:]
-        self.log_reshaped_return = self.log_reshaped_return[-self.num_procs:]
-        self.log_reshaped_return_bonus = self.log_reshaped_return_bonus[-self.num_procs:]
-        self.log_num_frames = self.log_num_frames[-self.num_procs:]
+        self.log_return = self.log_return[-self.num_procs :]
+        self.log_reshaped_return = self.log_reshaped_return[-self.num_procs :]
+        self.log_reshaped_return_bonus = self.log_reshaped_return_bonus[
+            -self.num_procs :
+        ]
+        self.log_num_frames = self.log_num_frames[-self.num_procs :]
 
         return exps, log
 
@@ -248,14 +361,14 @@ class LLMPPOAgent(BasePPOAgent):
         # print(exps.action)
         # action_counts = exps.action.unique(return_counts=True)
         # pi_l_action_counts = exps.pi_l_action.unique(return_counts=True)
-        '''
+        """
         exps is a DictList with the following keys ['prompt', 'action', 'value', 'reward',
          'advantage', 'returnn', 'log_prob'] and ['collected_info', 'extra_predictions'] if we use aux_info
         exps.prompt is a (n_procs * n_frames_per_proc) of prompt
         if we use aux_info: exps.collected_info and exps.extra_predictions are DictLists with keys
         being the added information. They are either (n_procs * n_frames_per_proc) 1D tensors or
         (n_procs * n_frames_per_proc) x k 2D tensors where k is the number of classes for multiclass classification
-        '''
+        """
         lm_server_update_first_call = True
         for _ in tqdm(range(self.epochs), ascii=" " * 9 + "<", ncols=100):
             # Initialize log values
@@ -276,33 +389,45 @@ class LLMPPOAgent(BasePPOAgent):
                 exps_batch = exps[inds]
 
                 # return the list of dict_return calculate by each llm
-                list_dict_return = self.lm_server.update(exps_batch.prompt,
-                                                         self.filter_candidates_fn(exps_batch.subgoal),
-                                                         exps=dict(exps_batch),
-                                                         lr=self.lr,
-                                                         beta1=self.beta1,
-                                                         beta2=self.beta2,
-                                                         adam_eps=self.adam_eps,
-                                                         clip_eps=self.clip_eps,
-                                                         entropy_coef=self.entropy_coef,
-                                                         value_loss_coef=self.value_loss_coef,
-                                                         max_grad_norm=self.max_grad_norm,
-                                                         nbr_llms=self.nbr_llms,
-                                                         id_expe=self.id_expe,
-                                                         lm_server_update_first_call=lm_server_update_first_call,
-                                                         saving_path_model=self.saving_path_model,
-                                                         experiment_path=self.experiment_path,
-                                                         number_updates=self.number_updates,
-                                                         scoring_module_key=self.llm_scoring_module_key,
-                                                         template_test=self.template_test)
+                list_dict_return = self.lm_server.update(
+                    exps_batch.prompt,
+                    self.filter_candidates_fn(exps_batch.subgoal),
+                    exps=dict(exps_batch),
+                    lr=self.lr,
+                    beta1=self.beta1,
+                    beta2=self.beta2,
+                    adam_eps=self.adam_eps,
+                    clip_eps=self.clip_eps,
+                    entropy_coef=self.entropy_coef,
+                    value_loss_coef=self.value_loss_coef,
+                    max_grad_norm=self.max_grad_norm,
+                    nbr_llms=self.nbr_llms,
+                    id_expe=self.id_expe,
+                    lm_server_update_first_call=lm_server_update_first_call,
+                    saving_path_model=self.saving_path_model,
+                    experiment_path=self.experiment_path,
+                    number_updates=self.number_updates,
+                    scoring_module_key=self.llm_scoring_module_key,
+                    template_test=self.template_test,
+                )
 
                 lm_server_update_first_call = False
 
-                log_losses.append(np.mean([d["loss"] for d in list_dict_return]))
-                log_entropies.append(np.mean([d["entropy"] for d in list_dict_return]))
-                log_policy_losses.append(np.mean([d["policy_loss"] for d in list_dict_return]))
-                log_value_losses.append(np.mean([d["value_loss"] for d in list_dict_return]))
-                log_grad_norms.append(np.mean([d["grad_norm"] for d in list_dict_return]))
+                log_losses.append(
+                    np.mean([d["loss"] for d in list_dict_return])
+                )
+                log_entropies.append(
+                    np.mean([d["entropy"] for d in list_dict_return])
+                )
+                log_policy_losses.append(
+                    np.mean([d["policy_loss"] for d in list_dict_return])
+                )
+                log_value_losses.append(
+                    np.mean([d["value_loss"] for d in list_dict_return])
+                )
+                log_grad_norms.append(
+                    np.mean([d["grad_norm"] for d in list_dict_return])
+                )
 
         # Log some values
 
@@ -327,11 +452,21 @@ class LLMPPOAgent(BasePPOAgent):
         indexes = np.random.permutation(indexes)
 
         num_indexes = self.batch_size
-        batches_starting_indexes = [indexes[i:i + num_indexes] for i in range(0, len(indexes), num_indexes)]
+        batches_starting_indexes = [
+            indexes[i : i + num_indexes]
+            for i in range(0, len(indexes), num_indexes)
+        ]
 
         return batches_starting_indexes
 
-    def generate_trajectories(self, dict_modifier, n_tests, language='english', im_learning=False, debug=False):
+    def generate_trajectories(
+        self,
+        dict_modifier,
+        n_tests,
+        language="english",
+        im_learning=False,
+        debug=False,
+    ):
         """Generates trajectories and calculates relevant metrics.
         Runs several environments concurrently.
         Returns
@@ -353,31 +488,55 @@ class LLMPPOAgent(BasePPOAgent):
             subgoals = self.subgoals
         elif language == "french":
             generate_prompt = self.generate_prompt_french
-            subgoals = [[LLMPPOAgent.prompt_modifier(sg, self.dict_translation_action) for sg in sgs] for sgs in self.subgoals]
+            subgoals = [
+                [
+                    LLMPPOAgent.prompt_modifier(
+                        sg, self.dict_translation_action
+                    )
+                    for sg in sgs
+                ]
+                for sgs in self.subgoals
+            ]
 
         nbr_frames = self.num_procs
         pbar = tqdm(range(n_tests), ascii=" " * 9 + ">", ncols=100)
         while self.log_done_counter < n_tests:
             # Do one agent-environment interaction
             nbr_frames += self.num_procs
-            prompt = [self.prompt_modifier(generate_prompt(goal=self.obs[j]['mission'], subgoals=subgoals[j],
-                                                           deque_obs=self.obs_queue[j],
-                                                           deque_actions=self.acts_queue[j]), dict_modifier)
-                      for j in range(self.num_procs)]
+            prompt = [
+                self.prompt_modifier(
+                    generate_prompt(
+                        goal=self.obs[j]["mission"],
+                        subgoals=subgoals[j],
+                        deque_obs=self.obs_queue[j],
+                        deque_actions=self.acts_queue[j],
+                    ),
+                    dict_modifier,
+                )
+                for j in range(self.num_procs)
+            ]
 
             if im_learning:
                 output = self.lm_server.custom_module_fns(
                     module_function_keys=[self.llm_scoring_module_key],
                     contexts=prompt,
-                    candidates=self.filter_candidates_fn(self.subgoals))
-                scores = torch.stack([_o[self.llm_scoring_module_key] for _o in output])
+                    candidates=self.filter_candidates_fn(self.subgoals),
+                )
+                scores = torch.stack(
+                    [_o[self.llm_scoring_module_key] for _o in output]
+                )
             else:
                 output = self.lm_server.custom_module_fns(
-                    module_function_keys=[self.llm_scoring_module_key, 'value'],
+                    module_function_keys=[self.llm_scoring_module_key, "value"],
                     contexts=prompt,
-                    candidates=self.filter_candidates_fn(self.subgoals))
-                scores = torch.stack([_o[self.llm_scoring_module_key] for _o in output])
-                vals = torch.stack([_o["value"][0] for _o in output]).cpu().numpy()
+                    candidates=self.filter_candidates_fn(self.subgoals),
+                )
+                scores = torch.stack(
+                    [_o[self.llm_scoring_module_key] for _o in output]
+                )
+                vals = (
+                    torch.stack([_o["value"][0] for _o in output]).cpu().numpy()
+                )
 
             dist = Categorical(logits=scores)
             action = dist.sample()
@@ -398,7 +557,7 @@ class LLMPPOAgent(BasePPOAgent):
                     # reinitialise memory of past observations and actions
                     self.obs_queue[j].clear()
                     self.acts_queue[j].clear()
-                self.obs_queue[j].append(self.infos[j]['descriptions'])
+                self.obs_queue[j].append(self.infos[j]["descriptions"])
 
             info = self.infos
 
@@ -409,13 +568,23 @@ class LLMPPOAgent(BasePPOAgent):
 
             self.obs = obs
 
-            self.mask = 1 - torch.tensor(done, device=self.device, dtype=torch.float)
+            self.mask = 1 - torch.tensor(
+                done, device=self.device, dtype=torch.float
+            )
 
             if self.reshape_reward is not None:
-                rewards_shaped = torch.tensor([
-                    self.reshape_reward(subgoal_proba=None, reward=reward_, policy_value=None, llm_0=None)
-                    for reward_ in reward
-                ], device=self.device)
+                rewards_shaped = torch.tensor(
+                    [
+                        self.reshape_reward(
+                            subgoal_proba=None,
+                            reward=reward_,
+                            policy_value=None,
+                            llm_0=None,
+                        )
+                        for reward_ in reward
+                    ],
+                    device=self.device,
+                )
                 self.rewards.append(rewards_shaped[:, 0])
                 self.rewards_bonus.append(rewards_shaped[:, 1])
             else:
@@ -423,10 +592,14 @@ class LLMPPOAgent(BasePPOAgent):
 
             # Update log values
 
-            self.log_episode_return += torch.tensor(reward, device=self.device, dtype=torch.float)
+            self.log_episode_return += torch.tensor(
+                reward, device=self.device, dtype=torch.float
+            )
             self.log_episode_reshaped_return += self.rewards[-1]
             self.log_episode_reshaped_return_bonus += self.rewards_bonus[-1]
-            self.log_episode_num_frames += torch.ones(self.num_procs, device=self.device)
+            self.log_episode_num_frames += torch.ones(
+                self.num_procs, device=self.device
+            )
 
             for i, done_ in enumerate(done):
                 if done_:
@@ -434,10 +607,16 @@ class LLMPPOAgent(BasePPOAgent):
                     pbar.update(1)
                     self.log_return.append(self.log_episode_return[i].item())
                     if self.log_episode_return[i].item() > 0:
-                        print(self.obs[i]['mission'])
-                    self.log_reshaped_return.append(self.log_episode_reshaped_return[i].item())
-                    self.log_reshaped_return_bonus.append(self.log_episode_reshaped_return_bonus[i].item())
-                    self.log_num_frames.append(self.log_episode_num_frames[i].item())
+                        print(self.obs[i]["mission"])
+                    self.log_reshaped_return.append(
+                        self.log_episode_reshaped_return[i].item()
+                    )
+                    self.log_reshaped_return_bonus.append(
+                        self.log_episode_reshaped_return_bonus[i].item()
+                    )
+                    self.log_num_frames.append(
+                        self.log_episode_num_frames[i].item()
+                    )
 
             self.log_episode_return *= self.mask
             self.log_episode_reshaped_return *= self.mask
@@ -465,16 +644,20 @@ class LLMPPOAgent(BasePPOAgent):
         log = {
             "return_per_episode": self.log_return[-keep:],
             "reshaped_return_per_episode": self.log_reshaped_return[-keep:],
-            "reshaped_return_bonus_per_episode": self.log_reshaped_return_bonus[-keep:],
+            "reshaped_return_bonus_per_episode": self.log_reshaped_return_bonus[
+                -keep:
+            ],
             "num_frames_per_episode": self.log_num_frames[-keep:],
             "episodes_done": self.log_done_counter,
-            "nbr_frames": nbr_frames
+            "nbr_frames": nbr_frames,
         }
 
         self.log_done_counter = 0
-        self.log_return = self.log_return[-self.num_procs:]
-        self.log_reshaped_return = self.log_reshaped_return[-self.num_procs:]
-        self.log_reshaped_return_bonus = self.log_reshaped_return_bonus[-self.num_procs:]
-        self.log_num_frames = self.log_num_frames[-self.num_procs:]
+        self.log_return = self.log_return[-self.num_procs :]
+        self.log_reshaped_return = self.log_reshaped_return[-self.num_procs :]
+        self.log_reshaped_return_bonus = self.log_reshaped_return_bonus[
+            -self.num_procs :
+        ]
+        self.log_num_frames = self.log_num_frames[-self.num_procs :]
 
         return exps, log

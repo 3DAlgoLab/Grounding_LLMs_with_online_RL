@@ -18,5 +18,8 @@
     "titleBar.inactiveBackground": "#0d0fa499",
     "titleBar.inactiveForeground": "#e7e7e799"
   },
-  "peacock.remoteColor": "#0d0fa4"
+  "peacock.remoteColor": "#0d0fa4",
+  "python.analysis.extraPaths": [
+    "babyai-text"
+  ]
 }
